@@ -35,8 +35,11 @@ export class SolicitacaoService {
         status: data.status || 'aberto',
         estagio: data.estagio || 'Pendente',
         descricao: data.descricao,
+        mensagem: data.mensagem,
         boletoPath: data.boletoPath,
         notaFiscalPath: data.notaFiscalPath,
+        visualizado: data.visualizado ?? false,
+        respondido: data.respondido ?? false,
       },
     })
 

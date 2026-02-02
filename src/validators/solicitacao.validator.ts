@@ -7,6 +7,9 @@ export const solicitacaoCreateSchema = z.object({
   status: z.enum(['aberto', 'pendente', 'aguardando_validacao', 'fechado']).optional().default('aberto'),
   estagio: z.enum(['Pendente', 'Em revisão', 'Aguardando validação', 'Fechado']).optional().default('Pendente'),
   descricao: z.string().optional(),
+  mensagem: z.string().optional(),
+  visualizado: z.boolean().optional().default(false),
+  respondido: z.boolean().optional().default(false),
 })
 
 export const solicitacaoUpdateSchema = z.object({
@@ -16,4 +19,7 @@ export const solicitacaoUpdateSchema = z.object({
   status: z.enum(['aberto', 'pendente', 'aguardando_validacao', 'fechado']).optional(),
   estagio: z.enum(['Pendente', 'Em revisão', 'Aguardando validação', 'Fechado']).optional(),
   descricao: z.string().optional(),
+  mensagem: z.string().optional(),
+  visualizado: z.boolean().optional(),
+  respondido: z.boolean().optional(),
 })

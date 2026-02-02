@@ -19,8 +19,13 @@ model Solicitacao {
   status        String   @default("aberto") // aberto, pendente, aguardando_validacao, fechado
   estagio       String   @default("Pendente") // Pendente, Em revisão, Aguardando validação, Fechado
   descricao     String?
+  mensagem      String?  // Mensagem inicial para comunicação com o suporte
   boletoPath    String?  // Caminho do arquivo de boleto
   notaFiscalPath String? // Caminho do arquivo de nota fiscal
+  visualizado   Boolean  @default(false) // Se o suporte visualizou a solicitação
+  visualizadoEm DateTime? // Data/hora da visualização pelo suporte
+  respondido    Boolean  @default(false) // Se foi respondido pelo suporte
+  respondidoEm  DateTime? // Data/hora da última resposta do suporte
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -29,6 +34,8 @@ model Solicitacao {
   @@index([numero])
   @@index([status])
   @@index([createdAt])
+  @@index([visualizado])
+  @@index([respondido])
 }
 
 model Mensagem {

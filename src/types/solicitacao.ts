@@ -10,8 +10,13 @@ export interface SolicitacaoCreateInput {
   status?: SolicitacaoStatus
   estagio?: SolicitacaoStage
   descricao?: string
+  mensagem?: string
   boletoPath?: string
   notaFiscalPath?: string
+  visualizado?: boolean
+  visualizadoEm?: Date
+  respondido?: boolean
+  respondidoEm?: Date
 }
 
 export interface SolicitacaoUpdateInput {
@@ -21,6 +26,11 @@ export interface SolicitacaoUpdateInput {
   status?: SolicitacaoStatus
   estagio?: SolicitacaoStage
   descricao?: string
+  mensagem?: string
   boletoPath?: string
   notaFiscalPath?: string
+  visualizado?: boolean
+  visualizadoEm?: Date
+  respondido?: boolean
+  respondidoEm?: Date
 }
