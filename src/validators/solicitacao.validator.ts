@@ -4,8 +4,9 @@ export const solicitacaoCreateSchema = z.object({
   titulo: z.string().min(1, 'Razão Social é obrigatória').max(255),
   origem: z.string().min(1, 'CNPJ é obrigatório').max(18),
   prioridade: z.enum(['baixa', 'media', 'alta']).optional().default('media'),
-  status: z.enum(['aberto', 'pendente', 'aguardando_validacao', 'fechado']).optional().default('aberto'),
+  // status não é aceito na criação: definido automaticamente pela fila do SaaS
   estagio: z.enum(['Pendente', 'Em revisão', 'Aguardando validação', 'Fechado']).optional().default('Pendente'),
+  mes: z.coerce.number().int().min(1, 'Mês deve ser entre 1 e 12').max(12, 'Mês deve ser entre 1 e 12').optional(),
   descricao: z.string().optional(),
   mensagem: z.string().optional(),
   visualizado: z.boolean().optional().default(false),
@@ -16,8 +17,21 @@ export const solicitacaoUpdateSchema = z.object({
   titulo: z.string().min(1).max(255).optional(),
   origem: z.string().min(1).max(18).optional(),
   prioridade: z.enum(['baixa', 'media', 'alta']).optional(),
-  status: z.enum(['aberto', 'pendente', 'aguardando_validacao', 'fechado']).optional(),
+  status: z
+    .enum([
+      'aberto',
+      'pendente',
+      'em_andamento',
+      'aguardando_validacao',
+      'aprovado',
+      'rejeitado',
+      'concluido',
+      'cancelado',
+      'fechado',
+    ])
+    .optional(),
   estagio: z.enum(['Pendente', 'Em revisão', 'Aguardando validação', 'Fechado']).optional(),
+  mes: z.coerce.number().int().min(1).max(12).optional(),
   descricao: z.string().optional(),
   mensagem: z.string().optional(),
   visualizado: z.boolean().optional(),

@@ -11,6 +11,8 @@ export interface SolicitacaoCreateInput {
   estagio?: SolicitacaoStage
   descricao?: string
   mensagem?: string
+  /** Mês do contrato (1-12) para o gráfico de boletos */
+  mes?: number
   boletoPath?: string
   notaFiscalPath?: string
   visualizado?: boolean
@@ -27,6 +29,7 @@ export interface SolicitacaoUpdateInput {
   estagio?: SolicitacaoStage
   descricao?: string
   mensagem?: string
+  mes?: number
   boletoPath?: string
   notaFiscalPath?: string
   visualizado?: boolean

@@ -1,87 +1,98 @@
-import prisma from '../config/database'
+import supabase from '../config/supabase'
 import { SolicitacaoCreateInput, SolicitacaoUpdateInput } from '../types/solicitacao'
+import { toCamel, toSnake } from '../utils/caseMap'
+
+const TABLE = 'solicitacao'
+
+// Colunas da tabela solicitacao. Inclua 'mes' após rodar a migration 004_solicitacao_mes.sql
+const COLUMNS =
+  'id,numero,titulo,origem,prioridade,status,estagio,descricao,mensagem,boleto_path,nota_fiscal_path,visualizado,visualizado_em,respondido,respondido_em,created_at,updated_at'
 
 export class SolicitacaoService {
-  /**
-   * Gera um número único de solicitação
-   */
   private async generateNumero(): Promise<string> {
     const timestamp = Date.now()
     const random = Math.floor(Math.random() * 1000)
     return `${timestamp}-${random}`
   }
 
-  /**
-   * Cria uma nova solicitação
-   */
   async create(data: SolicitacaoCreateInput & { boletoPath?: string; notaFiscalPath?: string }) {
     const numero = data.numero || (await this.generateNumero())
 
-    // Verificar se o número já existe
-    const existing = await prisma.solicitacao.findUnique({
-      where: { numero },
-    })
+    const { data: existing } = await supabase.from(TABLE).select('id').eq('numero', numero).maybeSingle()
+    if (existing) throw new Error('Número de solicitação já existe')
 
-    if (existing) {
-      throw new Error('Número de solicitação já existe')
-    }
+    // Status definido automaticamente pela fila do SaaS; cliente não pode alterar
+    const statusInicial = 'aberto'
 
-    const solicitacao = await prisma.solicitacao.create({
-      data: {
-        numero,
-        titulo: data.titulo,
-        origem: data.origem,
-        prioridade: data.prioridade || 'media',
-        status: data.status || 'aberto',
-        estagio: data.estagio || 'Pendente',
-        descricao: data.descricao,
-        mensagem: data.mensagem,
-        boletoPath: data.boletoPath,
-        notaFiscalPath: data.notaFiscalPath,
-        visualizado: data.visualizado ?? false,
-        respondido: data.respondido ?? false,
-      },
-    })
+    // Não incluir 'mes' no insert até a coluna existir (migration 004_solicitacao_mes.sql)
+    const row = toSnake({
+      numero,
+      titulo: data.titulo,
+      origem: data.origem,
+      prioridade: data.prioridade || 'media',
+      status: statusInicial,
+      estagio: data.estagio || 'Pendente',
+      descricao: data.descricao,
+      mensagem: data.mensagem,
+      boletoPath: data.boletoPath,
+      notaFiscalPath: data.notaFiscalPath,
+      visualizado: data.visualizado ?? false,
+      respondido: data.respondido ?? false,
+    }) as Record<string, unknown>
 
-    return solicitacao
+    const { data: solicitacao, error } = await supabase.from(TABLE).insert(row).select(COLUMNS).single()
+    if (error) throw new Error(error.message)
+    return toCamel(solicitacao)
   }
 
-  /**
-   * Busca todas as solicitações com paginação
-   */
   async findAll(page: number = 1, limit: number = 10, filters?: { status?: string; search?: string }) {
-    const skip = (page - 1) * limit
+    const from = (page - 1) * limit
+    const to = from + limit - 1
 
-    const where: any = {}
-    if (filters?.status) {
-      where.status = filters.status
-    }
+    let query = supabase
+      .from(TABLE)
+      .select(COLUMNS, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (filters?.status) query = query.eq('status', filters.status)
     if (filters?.search) {
-      where.OR = [
-        { titulo: { contains: filters.search } },
-        { numero: { contains: filters.search } },
-        { origem: { contains: filters.search } },
-      ]
+      query = query.or(
+        `titulo.ilike.%${filters.search}%,numero.ilike.%${filters.search}%,origem.ilike.%${filters.search}%`
+      )
     }
 
-    const [solicitacoes, total] = await Promise.all([
-      prisma.solicitacao.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          mensagens: {
-            orderBy: { dataHora: 'desc' },
-            take: 1,
-          },
-        },
-      }),
-      prisma.solicitacao.count({ where }),
-    ])
+    const { data: solicitacoes, error, count } = await query
+
+    if (error) throw new Error(error.message)
+    const total = count ?? 0
+
+    const ids = (solicitacoes || []).map((s) => s.id)
+    const { data: mensagensBySolicitacao } =
+      ids.length > 0
+        ? await supabase
+            .from('mensagem')
+            .select('*')
+            .in('solicitacao_id', ids)
+            .order('data_hora', { ascending: false })
+        : { data: [] }
+
+    const mensagensMap = new Map<string, unknown[]>()
+    for (const m of mensagensBySolicitacao || []) {
+      const sid = m.solicitacao_id
+      if (!sid) continue
+      if (!mensagensMap.has(sid)) mensagensMap.set(sid, [])
+      const arr = mensagensMap.get(sid)!
+      if (arr.length < 1) arr.push(toCamel(m))
+    }
+
+    const solicitacoesWithMensagens = (solicitacoes || []).map((s) => ({
+      ...(toCamel(s) as Record<string, unknown>),
+      mensagens: mensagensMap.get(s.id) ?? [],
+    }))
 
     return {
-      solicitacoes,
+      solicitacoes: solicitacoesWithMensagens,
       pagination: {
         page,
         limit,
@@ -91,85 +102,65 @@ export class SolicitacaoService {
     }
   }
 
-  /**
-   * Busca uma solicitação por ID
-   */
   async findById(id: string) {
-    const solicitacao = await prisma.solicitacao.findUnique({
-      where: { id },
-      include: {
-        mensagens: {
-          orderBy: { dataHora: 'desc' },
-        },
-      },
-    })
+    const { data: solicitacao, error } = await supabase.from(TABLE).select(COLUMNS).eq('id', id).single()
+    if (error || !solicitacao) throw new Error('Solicitação não encontrada')
 
-    if (!solicitacao) {
-      throw new Error('Solicitação não encontrada')
+    const { data: mensagens } = await supabase
+      .from('mensagem')
+      .select('*')
+      .eq('solicitacao_id', id)
+      .order('data_hora', { ascending: false })
+
+    return {
+      ...(toCamel(solicitacao) as Record<string, unknown>),
+      mensagens: (mensagens || []).map((m) => toCamel(m)),
     }
-
-    return solicitacao
   }
 
-  /**
-   * Busca uma solicitação por número
-   */
   async findByNumero(numero: string) {
-    const solicitacao = await prisma.solicitacao.findUnique({
-      where: { numero },
-      include: {
-        mensagens: {
-          orderBy: { dataHora: 'desc' },
-        },
-      },
-    })
+    const { data: solicitacao, error } = await supabase.from(TABLE).select(COLUMNS).eq('numero', numero).single()
+    if (error || !solicitacao) throw new Error('Solicitação não encontrada')
 
-    if (!solicitacao) {
-      throw new Error('Solicitação não encontrada')
+    const { data: mensagens } = await supabase
+      .from('mensagem')
+      .select('*')
+      .eq('solicitacao_id', solicitacao.id)
+      .order('data_hora', { ascending: false })
+
+    return {
+      ...(toCamel(solicitacao) as Record<string, unknown>),
+      mensagens: (mensagens || []).map((m) => toCamel(m)),
     }
-
-    return solicitacao
   }
 
-  /**
-   * Atualiza uma solicitação
-   */
   async update(id: string, data: SolicitacaoUpdateInput & { boletoPath?: string; notaFiscalPath?: string }) {
-    const solicitacao = await prisma.solicitacao.findUnique({
-      where: { id },
-    })
-
-    if (!solicitacao) {
-      throw new Error('Solicitação não encontrada')
+    await this.findById(id)
+    // Montar payload apenas com colunas permitidas e valores primitivos (evita "{}" em timestamp)
+    const row: Record<string, string | number | boolean> = {
+      updated_at: new Date().toISOString(),
     }
-
-    const updated = await prisma.solicitacao.update({
-      where: { id },
-      data: {
-        ...data,
-        updatedAt: new Date(),
-      },
-    })
-
-    return updated
+    if (data.titulo != null) row.titulo = data.titulo
+    if (data.origem != null) row.origem = data.origem
+    if (data.prioridade != null) row.prioridade = data.prioridade
+    if (data.status != null) row.status = data.status
+    if (data.estagio != null) row.estagio = data.estagio
+    // Incluir mes no update após rodar a migration 004_solicitacao_mes.sql
+    if (data.descricao != null) row.descricao = data.descricao
+    if (data.mensagem != null) row.mensagem = data.mensagem
+    if (data.visualizado != null) row.visualizado = data.visualizado
+    if (data.respondido != null) row.respondido = data.respondido
+    if (data.boletoPath != null) row.boleto_path = data.boletoPath
+    if (data.notaFiscalPath != null) row.nota_fiscal_path = data.notaFiscalPath
+    const { data: updated, error } = await supabase.from(TABLE).update(row).eq('id', id).select(COLUMNS).single()
+    if (error) throw new Error(error.message)
+    return toCamel(updated)
   }
 
-  /**
-   * Deleta uma solicitação
-   */
   async delete(id: string) {
-    const solicitacao = await prisma.solicitacao.findUnique({
-      where: { id },
-    })
-
-    if (!solicitacao) {
-      throw new Error('Solicitação não encontrada')
-    }
-
-    await prisma.solicitacao.delete({
-      where: { id },
-    })
-
+    await this.findById(id)
+    const { error } = await supabase.from(TABLE).delete().eq('id', id)
+    if (error) throw new Error(error.message)
     return { message: 'Solicitação deletada com sucesso' }
   }
 }

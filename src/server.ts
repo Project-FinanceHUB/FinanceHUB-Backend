@@ -4,8 +4,9 @@ import dotenv from 'dotenv'
 import path from 'path'
 import apiRoutes from './routes'
 
-// Carregar variáveis de ambiente
+// Carregar variáveis de ambiente (.env e depois .env.local para overrides locais)
 dotenv.config()
+dotenv.config({ path: path.join(process.cwd(), '.env.local'), override: true })
 
 const app = express()
 const PORT = process.env.PORT || 3001
