@@ -14,10 +14,12 @@ const PORT = process.env.PORT || 3001
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 const allowedOrigins = FRONTEND_URL.split(',').map((o) => o.trim()).filter(Boolean)
 
-// Middleware
+// Middleware CORS: origens configuradas + no Vercel aceita qualquer *.vercel.app (produção e previews)
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
+    if (!origin) return cb(null, true)
+    if (allowedOrigins.includes(origin)) return cb(null, true)
+    if (process.env.VERCEL && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return cb(null, true)
     return cb(null, false)
   },
   credentials: true,
