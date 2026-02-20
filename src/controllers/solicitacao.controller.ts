@@ -10,8 +10,8 @@ export class SolicitacaoController {
    */
   async create(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
 
       const bodyData = solicitacaoCreateSchema.parse(req.body)
 
@@ -39,7 +39,7 @@ export class SolicitacaoController {
           boletoPath,
           notaFiscalPath,
         },
-        userId
+        ownerId
       )
 
       res.status(201).json({
@@ -68,15 +68,15 @@ export class SolicitacaoController {
    */
   async findAll(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
 
       const page = parseInt(req.query.page as string) || 1
       const limit = parseInt(req.query.limit as string) || 10
       const status = req.query.status as string | undefined
       const search = req.query.search as string | undefined
 
-      const result = await solicitacaoService.findAll(userId, page, limit, { status, search })
+      const result = await solicitacaoService.findAll(ownerId, page, limit, { status, search })
 
       res.json(result)
     } catch (error: any) {
@@ -94,10 +94,10 @@ export class SolicitacaoController {
    */
   async findById(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      const solicitacao = await solicitacaoService.findById(id, userId)
+      const solicitacao = await solicitacaoService.findById(id, ownerId)
 
       res.json({ data: solicitacao })
     } catch (error: any) {
@@ -121,10 +121,10 @@ export class SolicitacaoController {
    */
   async findByNumero(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { numero } = req.params
-      const solicitacao = await solicitacaoService.findByNumero(numero, userId)
+      const solicitacao = await solicitacaoService.findByNumero(numero, ownerId)
 
       res.json({ data: solicitacao })
     } catch (error: any) {
@@ -148,8 +148,8 @@ export class SolicitacaoController {
    */
   async update(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
 
       const bodyData = solicitacaoUpdateSchema.parse(req.body)
@@ -162,7 +162,7 @@ export class SolicitacaoController {
       if (boletoPath) updateData.boletoPath = boletoPath
       if (notaFiscalPath) updateData.notaFiscalPath = notaFiscalPath
 
-      const solicitacao = await solicitacaoService.update(id, updateData, userId)
+      const solicitacao = await solicitacaoService.update(id, updateData, ownerId)
 
       res.json({
         message: 'Solicitação atualizada com sucesso',
@@ -196,10 +196,10 @@ export class SolicitacaoController {
    */
   async delete(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      await solicitacaoService.delete(id, userId)
+      await solicitacaoService.delete(id, ownerId)
 
       res.json({
         message: 'Solicitação deletada com sucesso',

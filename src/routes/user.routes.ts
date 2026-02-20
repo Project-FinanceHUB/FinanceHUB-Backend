@@ -8,10 +8,10 @@ const router = Router()
 router.get('/me', requireAuth, userController.getMe.bind(userController))
 router.put('/me', requireAuth, userController.updateMe.bind(userController))
 
-router.get('/', userController.findAll.bind(userController))
-router.get('/:id', userController.findById.bind(userController))
-router.post('/', userController.create.bind(userController))
-router.put('/:id', userController.update.bind(userController))
-router.delete('/:id', userController.delete.bind(userController))
+router.get('/', requireAuth, userController.findAll.bind(userController))
+router.get('/:id', requireAuth, userController.findById.bind(userController))
+router.post('/', requireAuth, userController.create.bind(userController))
+router.put('/:id', requireAuth, userController.update.bind(userController))
+router.delete('/:id', requireAuth, userController.delete.bind(userController))
 
 export default router

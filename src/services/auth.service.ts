@@ -275,6 +275,9 @@ export class AuthService {
         .update({ last_activity: new Date().toISOString() })
         .eq('id', session.id)
 
+      const gerenteId = (user as any).gerente_id ?? null
+      const effectiveOwnerId = gerenteId || user.id
+
       return {
         id: session.id,
         userId: session.user_id,
@@ -285,6 +288,8 @@ export class AuthService {
           nome: user.nome,
           email: user.email,
           role: user.role,
+          gerenteId: gerenteId || undefined,
+          effectiveOwnerId,
         },
       }
     }
@@ -348,10 +353,14 @@ export class AuthService {
           nome: '',
           email: email || '',
           role: 'usuario',
+          effectiveOwnerId: payload.sub,
         },
       }
     }
     if (!user.ativo) throw new Error('Usuário inativo')
+
+    const gerenteId = (user as any).gerente_id ?? null
+    const effectiveOwnerId = gerenteId || user.id
 
     return {
       id: payload.sub,
@@ -363,6 +372,8 @@ export class AuthService {
         nome: user.nome ?? '',
         email: user.email,
         role: user.role,
+        gerenteId: gerenteId || undefined,
+        effectiveOwnerId,
       },
     }
   }
@@ -376,8 +387,9 @@ export class AuthService {
     email: string
     password: string
     role?: string
+    gerenteId?: string
   }): Promise<{ user: any }> {
-    const { nome, email, password, role } = data
+    const { nome, email, password, role, gerenteId } = data
     const { data: authData, error: createError } = await supabase.auth.admin.createUser({
       email: email.trim(),
       password,
@@ -399,24 +411,27 @@ export class AuthService {
 
     const result = await this.syncProfileFromSupabase(authUser.id, authUser.email || email, {
       nome: nome.trim(),
-      role: role || 'usuario',
-    })
+      role: gerenteId ? 'usuario' : (role || 'usuario'),
+    }, gerenteId)
     return result
   }
 
   /**
    * Sincroniza perfil do usuário após signUp no Supabase Auth.
    * Cria ou atualiza registro em public.users com id = auth.user.id.
+   * Se gerenteId for passado, o usuário é vinculado como funcionário desse gerente.
    */
   async syncProfileFromSupabase(
     authUserId: string,
     email: string,
-    data: { nome: string; role?: string }
+    data: { nome: string; role?: string },
+    gerenteId?: string
   ): Promise<{ user: any }> {
     const normalizedEmail = email.trim().toLowerCase()
     const nome = (data.nome || email).trim()
     const role = data.role || 'usuario'
     const updatedAt = new Date().toISOString()
+    const gerentePayload = gerenteId != null ? { gerente_id: gerenteId } : {}
 
     const { data: existingById } = await supabase
       .from(USER_TABLE)
@@ -427,7 +442,7 @@ export class AuthService {
     if (existingById) {
       const { data: updated, error } = await supabase
         .from(USER_TABLE)
-        .update({ nome, role, updated_at: updatedAt })
+        .update({ nome, role, updated_at: updatedAt, ...gerentePayload })
         .eq('id', authUserId)
         .select()
         .single()
@@ -445,7 +460,7 @@ export class AuthService {
     if (existingByEmail) {
       const { data: updated, error } = await supabase
         .from(USER_TABLE)
-        .update({ nome, role, updated_at: updatedAt })
+        .update({ nome, role, updated_at: updatedAt, ...gerentePayload })
         .eq('id', existingByEmail.id)
         .select()
         .single()
@@ -461,6 +476,7 @@ export class AuthService {
         email: normalizedEmail,
         role,
         ativo: true,
+        ...gerentePayload,
       })
       .select()
       .single()

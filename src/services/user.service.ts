@@ -6,10 +6,12 @@ import { toCamel, toSnake } from '../utils/caseMap'
 const TABLE = 'users'
 
 export class UserService {
-  async findAll() {
+  /** Lista apenas usuários vinculados a este gerente (funcionários) */
+  async findAllByGerente(gerenteId: string) {
     const { data, error } = await supabase
       .from(TABLE)
       .select('*')
+      .eq('gerente_id', gerenteId)
       .order('created_at', { ascending: false })
 
     if (error) throw new Error(error.message)
@@ -18,9 +20,8 @@ export class UserService {
 
   async findById(id: string) {
     const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).single()
-
     if (error || !data) throw new Error('Usuário não encontrado')
-    return toCamel(data)
+    return toCamel(data) as Record<string, unknown> & { gerenteId?: string }
   }
 
   async findByEmail(email: string) {

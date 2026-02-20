@@ -18,9 +18,9 @@ const companyUpdateSchema = z.object({
 export class CompanyController {
   async findAll(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
-      const companies = await companyService.findAll(userId)
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
+      const companies = await companyService.findAll(ownerId)
       res.json({ data: companies })
     } catch (error: any) {
       console.error('Erro ao listar empresas:', error)
@@ -33,10 +33,10 @@ export class CompanyController {
 
   async findById(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      const company = await companyService.findById(id, userId)
+      const company = await companyService.findById(id, ownerId)
       res.json({ data: company })
     } catch (error: any) {
       if (error.message === 'Empresa não encontrada') {
@@ -52,10 +52,10 @@ export class CompanyController {
 
   async create(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const data = companyCreateSchema.parse(req.body)
-      const company = await companyService.create(data, userId)
+      const company = await companyService.create(data, ownerId)
       res.status(201).json({
         message: 'Empresa criada com sucesso',
         data: company,
@@ -77,11 +77,11 @@ export class CompanyController {
 
   async update(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
       const data = companyUpdateSchema.parse(req.body)
-      const company = await companyService.update(id, data, userId)
+      const company = await companyService.update(id, data, ownerId)
       res.json({
         message: 'Empresa atualizada com sucesso',
         data: company,
@@ -106,10 +106,10 @@ export class CompanyController {
 
   async delete(req: AuthRequest, res: Response) {
     try {
-      const userId = req.user?.id
-      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      await companyService.delete(id, userId)
+      await companyService.delete(id, ownerId)
       res.json({ message: 'Empresa deletada com sucesso' })
     } catch (error: any) {
       if (error.message === 'Empresa não encontrada') {

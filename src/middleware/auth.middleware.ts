@@ -7,6 +7,8 @@ export interface AuthRequest extends Request {
     nome: string
     email: string
     role: string
+    gerenteId?: string
+    effectiveOwnerId: string
   }
   session?: any
 }

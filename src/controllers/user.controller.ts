@@ -7,6 +7,7 @@ import { z } from 'zod'
 const userCreateSchema = z.object({
   nome: z.string().min(1, 'Nome é obrigatório').max(255),
   email: z.string().email('E-mail inválido'),
+  password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
   role: z.enum(['admin', 'gerente', 'usuario']).optional(),
   ativo: z.boolean().optional(),
 })
@@ -36,14 +37,16 @@ export class UserController {
       const nome = req.user?.nome ?? ''
       if (!userId) return res.status(401).json({ error: 'Não autenticado' })
       try {
-        const user = await userService.findById(userId)
-        return res.json({ data: user })
+        const user = await userService.findById(userId) as Record<string, unknown> & { gerenteId?: string }
+        const effectiveOwnerId = user.gerenteId || user.id
+        return res.json({ data: { ...user, effectiveOwnerId } })
       } catch (err: any) {
         if (err.message !== 'Usuário não encontrado') throw err
         // Usuário existe no Auth mas não em public.users (ex.: login Supabase sem sync) — cria agora
         await authService.syncProfileFromSupabase(userId, email, { nome: nome || email })
-        const user = await userService.findById(userId)
-        return res.json({ data: user })
+        const user = await userService.findById(userId) as Record<string, unknown> & { gerenteId?: string }
+        const effectiveOwnerId = user.gerenteId || user.id
+        return res.json({ data: { ...user, effectiveOwnerId } })
       }
     } catch (error: any) {
       console.error('Erro ao buscar perfil:', error)
@@ -97,9 +100,12 @@ export class UserController {
     }
   }
 
-  async findAll(req: Request, res: Response) {
+  /** Lista apenas os funcionários vinculados ao usuário logado (gerente) */
+  async findAll(req: AuthRequest, res: Response) {
     try {
-      const users = await userService.findAll()
+      const gerenteId = req.user?.id
+      if (!gerenteId) return res.status(401).json({ error: 'Não autorizado' })
+      const users = await userService.findAllByGerente(gerenteId)
       res.json({ data: users })
     } catch (error: any) {
       console.error('Erro ao listar usuários:', error)
@@ -110,10 +116,15 @@ export class UserController {
     }
   }
 
-  async findById(req: Request, res: Response) {
+  async findById(req: AuthRequest, res: Response) {
     try {
+      const currentUserId = req.user?.id
+      if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      const user = await userService.findById(id)
+      const user = await userService.findById(id) as { id: string; gerenteId?: string }
+      if (user.id !== currentUserId && user.gerenteId !== currentUserId) {
+        return res.status(404).json({ error: 'Usuário não encontrado' })
+      }
       res.json({ data: user })
     } catch (error: any) {
       if (error.message === 'Usuário não encontrado') {
@@ -127,13 +138,22 @@ export class UserController {
     }
   }
 
-  async create(req: Request, res: Response) {
+  /** Cria um funcionário vinculado ao gerente logado (com login por e-mail/senha) */
+  async create(req: AuthRequest, res: Response) {
     try {
+      const gerenteId = req.user?.id
+      if (!gerenteId) return res.status(401).json({ error: 'Não autorizado' })
       const data = userCreateSchema.parse(req.body)
-      const user = await userService.create(data)
+      const { user } = await authService.registerWithPassword({
+        nome: data.nome,
+        email: data.email,
+        password: data.password,
+        role: data.role || 'usuario',
+        gerenteId,
+      })
       res.status(201).json({
-        message: 'Usuário criado com sucesso',
-        data: user,
+        message: 'Usuário criado com sucesso. Ele pode fazer login com este e-mail e a senha definida.',
+        data: { id: user.id, nome: user.nome, email: user.email, role: user.role, ativo: true },
       })
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -142,8 +162,8 @@ export class UserController {
           details: error.errors,
         })
       }
-      if (error.message === 'E-mail já cadastrado') {
-        return res.status(409).json({ error: error.message })
+      if (error.message === 'E-mail já cadastrado' || error.message?.toLowerCase?.().includes('already registered')) {
+        return res.status(409).json({ error: 'E-mail já cadastrado' })
       }
       console.error('Erro ao criar usuário:', error)
       res.status(500).json({
@@ -153,9 +173,15 @@ export class UserController {
     }
   }
 
-  async update(req: Request, res: Response) {
+  async update(req: AuthRequest, res: Response) {
     try {
+      const currentUserId = req.user?.id
+      if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
+      const existing = await userService.findById(id) as { gerenteId?: string }
+      if (existing.gerenteId !== currentUserId && id !== currentUserId) {
+        return res.status(404).json({ error: 'Usuário não encontrado' })
+      }
       const data = userUpdateSchema.parse(req.body)
       const user = await userService.update(id, data)
       res.json({
@@ -182,9 +208,15 @@ export class UserController {
     }
   }
 
-  async delete(req: Request, res: Response) {
+  async delete(req: AuthRequest, res: Response) {
     try {
+      const currentUserId = req.user?.id
+      if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
+      const existing = await userService.findById(id) as { gerenteId?: string }
+      if (existing.gerenteId !== currentUserId) {
+        return res.status(404).json({ error: 'Usuário não encontrado' })
+      }
       await userService.delete(id)
       res.json({ message: 'Usuário deletado com sucesso' })
     } catch (error: any) {
