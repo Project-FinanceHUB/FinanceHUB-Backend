@@ -2,9 +2,16 @@
   "version": 2,
   "buildCommand": "npm run build",
   "installCommand": "npm install --include=dev",
-  "functions": {
-    "api/[[...path]].ts": {
-      "maxDuration": 30
+  "functions": { "api/[[...path]].ts": { "maxDuration": 30 } },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://finance-hub-front-seven.vercel.app" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, PATCH, DELETE, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" },
+        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+      ]
     }
-  }
+  ]
 }

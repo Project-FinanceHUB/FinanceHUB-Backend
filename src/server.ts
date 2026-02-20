@@ -1,5 +1,4 @@
 import express from 'express'
-import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
 import apiRoutes from './routes'
@@ -14,16 +13,19 @@ const PORT = process.env.PORT || 3001
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 const allowedOrigins = FRONTEND_URL.split(',').map((o) => o.trim()).filter(Boolean)
 
-// Middleware CORS: origens configuradas + no Vercel aceita qualquer *vercel.app (produção e previews)
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true)
-    if (allowedOrigins.includes(origin)) return cb(null, true)
-    if (process.env.VERCEL && origin.endsWith('.vercel.app') && origin.startsWith('https://')) return cb(null, true)
-    return cb(null, false)
-  },
-  credentials: true,
-}))
+// CORS: responder OPTIONS (preflight) imediatamente para evitar falha no Vercel
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  const allowOrigin = !origin ? true
+    : allowedOrigins.includes(origin)
+    || (process.env.VERCEL && origin.endsWith('.vercel.app') && origin.startsWith('https://'))
+  if (allowOrigin && origin) res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
+  if (req.method === 'OPTIONS') return res.status(204).end()
+  next()
+})
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
