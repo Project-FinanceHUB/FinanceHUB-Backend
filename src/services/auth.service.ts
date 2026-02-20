@@ -181,41 +181,57 @@ export class AuthService {
 
   /**
    * Valida JWT emitido pelo Supabase Auth (login com email/senha).
-   * Suporta HS256 (JWT Secret legado) e ES256/RS256 (chaves assimétricas via JWKS).
+   * Prioridade: 1) supabase.auth.getUser(token) (API oficial), 2) HS256 com JWT Secret, 3) ES256/RS256 com JWKS.
    */
   async validateSupabaseJwt(token: string): Promise<SupabaseJwtPayload | null> {
+    const trimmed = token?.trim()
+    if (!trimmed) return null
+
     try {
-      const decoded = jwt.decode(token, { complete: true })
+      // 1) Validar via API do Supabase (recomendado: o próprio Supabase valida o token)
+      const { data: { user }, error: getUserError } = await supabase.auth.getUser(trimmed)
+      if (!getUserError && user) {
+        const role = (user as any).role ?? (user as any).user_metadata?.role
+        return {
+          sub: user.id,
+          email: user.email ?? undefined,
+          role: role ?? undefined,
+          exp: undefined,
+          aud: 'authenticated',
+        }
+      }
+      if (getUserError) console.error('[Auth] getUser falhou:', getUserError.message)
+
+      // 2) Fallback: verificação local HS256 (JWT Secret)
+      const decoded = jwt.decode(trimmed, { complete: true })
       if (!decoded || typeof decoded !== 'object' || !decoded.payload || typeof decoded.payload !== 'object')
         return null
       const payload = decoded.payload as Record<string, unknown>
       const alg = decoded.header?.alg
       const iss = typeof payload.iss === 'string' ? payload.iss : null
       const exp = typeof payload.exp === 'number' ? payload.exp : null
-      if (exp != null && exp < Math.floor(Date.now() / 1000)) {
-        console.error('[Auth] JWT expirado, exp=', exp)
-        return null
-      }
+      if (exp != null && exp < Math.floor(Date.now() / 1000)) return null
 
       if (alg === 'HS256') {
         const secret = process.env.SUPABASE_JWT_SECRET
-        if (!secret) {
-          console.error('[Auth] SUPABASE_JWT_SECRET não definido (HS256)')
+        if (!secret) return null
+        try {
+          const verified = jwt.verify(trimmed, secret, {
+            algorithms: ['HS256'],
+            audience: 'authenticated',
+          }) as SupabaseJwtPayload
+          return verified
+        } catch {
           return null
         }
-        const verified = jwt.verify(token, secret, {
-          algorithms: ['HS256'],
-          audience: 'authenticated',
-        }) as SupabaseJwtPayload
-        return verified
       }
 
+      // 3) Fallback: ES256/RS256 com JWKS
       if ((alg === 'ES256' || alg === 'RS256') && iss) {
         const jwksUrl = `${iss.replace(/\/$/, '')}/.well-known/jwks.json`
         const jose = await (Function('return import("jose")')() as Promise<typeof import('jose')>)
         const JWKS = jose.createRemoteJWKSet(new URL(jwksUrl))
-        // Verificar assinatura e exp; não exigir audience para compatibilidade com todos os projetos Supabase
-        const { payload: verified } = await jose.jwtVerify(token, JWKS)
+        const { payload: verified } = await jose.jwtVerify(trimmed, JWKS)
         return {
           sub: verified.sub as string,
           email: verified.email as string | undefined,
@@ -225,10 +241,9 @@ export class AuthService {
         }
       }
 
-      console.error('[Auth] Algoritmo não suportado ou iss ausente:', alg, iss)
       return null
     } catch (err: any) {
-      console.error('[Auth] Falha ao validar JWT do Supabase:', err?.message || err)
+      console.error('[Auth] Falha ao validar JWT:', err?.message || err)
       return null
     }
   }
