@@ -4,9 +4,9 @@ import { toCamel, toSnake } from '../utils/caseMap'
 
 const TABLE = 'solicitacao'
 
-// Colunas da tabela solicitacao. Inclua 'mes' após rodar a migration 004_solicitacao_mes.sql
+// Colunas da tabela solicitacao (inclui 'mes' para refletir o mês do contrato no frontend)
 const COLUMNS =
-  'id,numero,titulo,origem,prioridade,status,estagio,descricao,mensagem,boleto_path,nota_fiscal_path,visualizado,visualizado_em,respondido,respondido_em,created_at,updated_at'
+  'id,numero,titulo,origem,prioridade,status,estagio,descricao,mensagem,mes,boleto_path,nota_fiscal_path,visualizado,visualizado_em,respondido,respondido_em,created_at,updated_at'
 
 export class SolicitacaoService {
   private async generateNumero(): Promise<string> {
@@ -24,7 +24,6 @@ export class SolicitacaoService {
     // Status definido automaticamente pela fila do SaaS; cliente não pode alterar
     const statusInicial = 'aberto'
 
-    // Não incluir 'mes' no insert até a coluna existir (migration 004_solicitacao_mes.sql)
     const row = toSnake({
       numero,
       titulo: data.titulo,
@@ -34,6 +33,7 @@ export class SolicitacaoService {
       estagio: data.estagio || 'Pendente',
       descricao: data.descricao,
       mensagem: data.mensagem,
+      mes: data.mes,
       boletoPath: data.boletoPath,
       notaFiscalPath: data.notaFiscalPath,
       visualizado: data.visualizado ?? false,
@@ -145,7 +145,7 @@ export class SolicitacaoService {
     if (data.prioridade != null) row.prioridade = data.prioridade
     if (data.status != null) row.status = data.status
     if (data.estagio != null) row.estagio = data.estagio
-    // Incluir mes no update após rodar a migration 004_solicitacao_mes.sql
+    if (data.mes != null) row.mes = data.mes
     if (data.descricao != null) row.descricao = data.descricao
     if (data.mensagem != null) row.mensagem = data.mensagem
     if (data.visualizado != null) row.visualizado = data.visualizado
