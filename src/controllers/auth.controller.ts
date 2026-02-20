@@ -172,13 +172,15 @@ export class AuthController {
 
   /**
    * Cadastro pelo backend: cria usuário no Supabase já confirmado (sem e-mail de confirmação).
+   * Cadastro público sempre cria como "usuario"; evita "User not allowed" por hooks que bloqueiam admin.
    * POST /api/auth/register
    * Body: { nome: string, email: string, password: string, role?: string }
    */
   async register(req: Request, res: Response) {
     try {
       const body = registerSchema.parse(req.body)
-      const result = await authService.registerWithPassword(body)
+      const bodyAsUsuario = { ...body, role: 'usuario' as const }
+      const result = await authService.registerWithPassword(bodyAsUsuario)
       res.status(201).json({
         success: true,
         message: 'Conta criada com sucesso. Faça login para entrar.',
@@ -197,6 +199,11 @@ export class AuthController {
       if (error.message?.includes('Bearer token') || error.message?.includes('valid Bearer')) {
         return res.status(500).json({
           error: 'Chave do Supabase incorreta. Use a chave service_role (secret) em SUPABASE_SERVICE_KEY no .env do backend. A chave anon/public não tem permissão para criar usuários. Em Supabase: Settings > API > service_role.',
+        })
+      }
+      if (error.message?.toLowerCase().includes('user not allowed')) {
+        return res.status(400).json({
+          error: 'Cadastro bloqueado. Verifique no Supabase: Authentication > Providers > Email (ative "Enable Email Signup") e use a chave service_role em SUPABASE_SERVICE_KEY. Se usar Auth Hooks, permita criação de usuários.',
         })
       }
       console.error('Erro ao cadastrar:', error)

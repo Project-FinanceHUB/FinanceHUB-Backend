@@ -384,7 +384,16 @@ export class AuthService {
       email_confirm: true,
       user_metadata: { nome: nome.trim(), role: role || 'usuario' },
     })
-    if (createError) throw new Error(createError.message)
+    if (createError) {
+      const msg = createError.message || ''
+      if (msg.toLowerCase().includes('user not allowed') || msg.toLowerCase().includes('signup not allowed')) {
+        throw new Error(
+          'Cadastro bloqueado pelo Supabase. No painel do Supabase: Authentication > Providers > Email, ative "Enable Email Signup". ' +
+          'Se usar chave anon no backend, troque para a chave service_role em Settings > API.'
+        )
+      }
+      throw new Error(createError.message)
+    }
     const authUser = authData?.user
     if (!authUser?.id) throw new Error('Erro ao criar usuário no sistema de autenticação.')
 
