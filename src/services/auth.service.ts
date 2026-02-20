@@ -191,10 +191,18 @@ export class AuthService {
       const payload = decoded.payload as Record<string, unknown>
       const alg = decoded.header?.alg
       const iss = typeof payload.iss === 'string' ? payload.iss : null
+      const exp = typeof payload.exp === 'number' ? payload.exp : null
+      if (exp != null && exp < Math.floor(Date.now() / 1000)) {
+        console.error('[Auth] JWT expirado, exp=', exp)
+        return null
+      }
 
       if (alg === 'HS256') {
         const secret = process.env.SUPABASE_JWT_SECRET
-        if (!secret) return null
+        if (!secret) {
+          console.error('[Auth] SUPABASE_JWT_SECRET não definido (HS256)')
+          return null
+        }
         const verified = jwt.verify(token, secret, {
           algorithms: ['HS256'],
           audience: 'authenticated',
@@ -203,13 +211,11 @@ export class AuthService {
       }
 
       if ((alg === 'ES256' || alg === 'RS256') && iss) {
-        // Dynamic import() para evitar require() de ESM no CommonJS (Vercel)
-        const jose = await (Function('return import("jose")')() as Promise<typeof import('jose')>)
         const jwksUrl = `${iss.replace(/\/$/, '')}/.well-known/jwks.json`
+        const jose = await (Function('return import("jose")')() as Promise<typeof import('jose')>)
         const JWKS = jose.createRemoteJWKSet(new URL(jwksUrl))
-        const { payload: verified } = await jose.jwtVerify(token, JWKS, {
-          audience: 'authenticated',
-        })
+        // Verificar assinatura e exp; não exigir audience para compatibilidade com todos os projetos Supabase
+        const { payload: verified } = await jose.jwtVerify(token, JWKS)
         return {
           sub: verified.sub as string,
           email: verified.email as string | undefined,
@@ -219,6 +225,7 @@ export class AuthService {
         }
       }
 
+      console.error('[Auth] Algoritmo não suportado ou iss ausente:', alg, iss)
       return null
     } catch (err: any) {
       console.error('[Auth] Falha ao validar JWT do Supabase:', err?.message || err)
