@@ -2,7 +2,6 @@ import supabase from '../config/supabase'
 import { AuthCodeRequest, VerifyCodeRequest } from '../types/auth'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import * as jose from 'jose'
 import { sendEmail, generateAuthCodeEmail } from '../utils/email'
 import { toCamel } from '../utils/caseMap'
 
@@ -204,6 +203,8 @@ export class AuthService {
       }
 
       if ((alg === 'ES256' || alg === 'RS256') && iss) {
+        // Dynamic import() para evitar require() de ESM no CommonJS (Vercel)
+        const jose = await (Function('return import("jose")')() as Promise<typeof import('jose')>)
         const jwksUrl = `${iss.replace(/\/$/, '')}/.well-known/jwks.json`
         const JWKS = jose.createRemoteJWKSet(new URL(jwksUrl))
         const { payload: verified } = await jose.jwtVerify(token, JWKS, {
@@ -270,16 +271,50 @@ export class AuthService {
     const payload = await this.validateSupabaseJwt(token)
     if (!payload) throw new Error('Sessão inválida ou expirada')
 
-    const { data: user, error: userError } = await supabase
+    const email = payload.email ?? ''
+    const trimmed = email.trim()
+    type UserRow = { id: string; nome: string; email: string; role: string; ativo: boolean; updated_at?: string }
+    const { data: userById, error: userError } = await supabase
       .from(USER_TABLE)
       .select('*')
       .eq('id', payload.sub)
       .maybeSingle()
 
     if (userError) throw new Error('Sessão inválida')
-    const email = payload.email || (user?.email ?? '')
 
-    // Se não existe em public.users (ex.: acabou de fazer signUp), retorna user mínimo para sync-profile criar
+    // Busca todos os registros com esse e-mail (pode haver mais de um) — sem maybeSingle para não falhar com duplicados
+    const candidates: UserRow[] = []
+    if (userById) candidates.push(userById as UserRow)
+    if (trimmed) {
+      const { data: byEmail } = await supabase.from(USER_TABLE).select('*').eq('email', trimmed)
+      if (byEmail?.length) candidates.push(...(byEmail as UserRow[]))
+      if (trimmed !== trimmed.toLowerCase()) {
+        const { data: byEmailLower } = await supabase.from(USER_TABLE).select('*').eq('email', trimmed.toLowerCase())
+        if (byEmailLower?.length) {
+          for (const row of byEmailLower as UserRow[]) {
+            if (!candidates.some((c) => c.id === row.id)) candidates.push(row)
+          }
+        }
+      }
+    }
+
+    // Remove duplicados por id e escolhe o registro mais recente (updated_at) para sempre retornar o perfil editado
+    const byId = new Map<string, UserRow>()
+    for (const row of candidates) {
+      if (!row.ativo) continue
+      const existing = byId.get(row.id)
+      const rowUpdated = row.updated_at ? new Date(row.updated_at).getTime() : 0
+      const existingUpdated = existing?.updated_at ? new Date(existing.updated_at).getTime() : 0
+      if (!existing || rowUpdated > existingUpdated) byId.set(row.id, row)
+    }
+    const sorted = [...byId.values()].sort((a, b) => {
+      const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0
+      const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0
+      return tb - ta
+    })
+    const user = sorted[0]
+
+    // Se ainda não existe em public.users, retorna user mínimo para sync-profile criar
     if (!user) {
       return {
         id: payload.sub,
@@ -298,12 +333,12 @@ export class AuthService {
 
     return {
       id: payload.sub,
-      userId: payload.sub,
+      userId: user.id,
       token,
       expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
       user: {
         id: user.id,
-        nome: user.nome,
+        nome: user.nome ?? '',
         email: user.email,
         role: user.role,
       },
@@ -347,30 +382,40 @@ export class AuthService {
     email: string,
     data: { nome: string; role?: string }
   ): Promise<{ user: any }> {
-    const { data: existing } = await supabase
+    const normalizedEmail = email.trim().toLowerCase()
+    const nome = (data.nome || email).trim()
+    const role = data.role || 'usuario'
+    const updatedAt = new Date().toISOString()
+
+    const { data: existingById } = await supabase
       .from(USER_TABLE)
       .select('*')
       .eq('id', authUserId)
       .maybeSingle()
 
-    const payload = {
-      id: authUserId,
-      nome: (data.nome || email).trim(),
-      email,
-      role: data.role || 'usuario',
-      ativo: true,
-      updated_at: new Date().toISOString(),
-    }
-
-    if (existing) {
+    if (existingById) {
       const { data: updated, error } = await supabase
         .from(USER_TABLE)
-        .update({
-          nome: payload.nome,
-          role: payload.role,
-          updated_at: payload.updated_at,
-        })
+        .update({ nome, role, updated_at: updatedAt })
         .eq('id', authUserId)
+        .select()
+        .single()
+      if (error) throw new Error(error.message)
+      return { user: { id: updated.id, nome: updated.nome, email: updated.email, role: updated.role } }
+    }
+
+    // Evita duplicate key: se já existe usuário com este e-mail (outro id), apenas atualiza
+    const { data: existingByEmail } = await supabase
+      .from(USER_TABLE)
+      .select('*')
+      .eq('email', normalizedEmail)
+      .maybeSingle()
+
+    if (existingByEmail) {
+      const { data: updated, error } = await supabase
+        .from(USER_TABLE)
+        .update({ nome, role, updated_at: updatedAt })
+        .eq('id', existingByEmail.id)
         .select()
         .single()
       if (error) throw new Error(error.message)
@@ -381,9 +426,9 @@ export class AuthService {
       .from(USER_TABLE)
       .insert({
         id: authUserId,
-        nome: payload.nome,
-        email: payload.email,
-        role: payload.role,
+        nome,
+        email: normalizedEmail,
+        role,
         ativo: true,
       })
       .select()
