@@ -6,6 +6,8 @@ export interface User {
   email: string
   role: UserRole
   ativo: boolean
+  telefone?: string
+  cargo?: string
   ultimoLogin?: string
   createdAt?: string
   updatedAt?: string
@@ -23,4 +25,13 @@ export interface UserUpdateInput {
   email?: string
   role?: UserRole
   ativo?: boolean
+  telefone?: string | null
+  cargo?: string | null
+}
+
+/** Campos editáveis no "Meu Perfil" (sem email) */
+export interface ProfileUpdateInput {
+  nome?: string
+  telefone?: string | null
+  cargo?: string | null
 }
