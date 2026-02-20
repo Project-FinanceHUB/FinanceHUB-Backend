@@ -1,5 +1,6 @@
-import { Request, Response } from 'express'
+import { Response } from 'express'
 import solicitacaoService from '../services/solicitacao.service'
+import type { AuthRequest } from '../middleware/auth.middleware'
 import { solicitacaoCreateSchema, solicitacaoUpdateSchema } from '../validators/solicitacao.validator'
 
 export class SolicitacaoController {
@@ -7,17 +8,17 @@ export class SolicitacaoController {
    * Cria uma nova solicitação
    * POST /api/solicitacoes
    */
-  async create(req: Request, res: Response) {
+  async create(req: AuthRequest, res: Response) {
     try {
-      // Validar dados do body
+      const userId = req.user?.id
+      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+
       const bodyData = solicitacaoCreateSchema.parse(req.body)
 
-      // Obter caminhos dos arquivos enviados
       const files = req.files as { [fieldname: string]: Express.Multer.File[] }
       const boletoPath = files?.boleto?.[0]?.path
       const notaFiscalPath = files?.notaFiscal?.[0]?.path
 
-      // Validar se os arquivos obrigatórios foram enviados
       if (!boletoPath) {
         return res.status(400).json({
           error: 'Boleto é obrigatório',
@@ -32,12 +33,14 @@ export class SolicitacaoController {
         })
       }
 
-      // Criar solicitação
-      const solicitacao = await solicitacaoService.create({
-        ...bodyData,
-        boletoPath,
-        notaFiscalPath,
-      })
+      const solicitacao = await solicitacaoService.create(
+        {
+          ...bodyData,
+          boletoPath,
+          notaFiscalPath,
+        },
+        userId
+      )
 
       res.status(201).json({
         message: 'Solicitação criada com sucesso',
@@ -60,17 +63,20 @@ export class SolicitacaoController {
   }
 
   /**
-   * Lista todas as solicitações com paginação
+   * Lista todas as solicitações do usuário com paginação
    * GET /api/solicitacoes
    */
-  async findAll(req: Request, res: Response) {
+  async findAll(req: AuthRequest, res: Response) {
     try {
+      const userId = req.user?.id
+      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
+
       const page = parseInt(req.query.page as string) || 1
       const limit = parseInt(req.query.limit as string) || 10
       const status = req.query.status as string | undefined
       const search = req.query.search as string | undefined
 
-      const result = await solicitacaoService.findAll(page, limit, { status, search })
+      const result = await solicitacaoService.findAll(userId, page, limit, { status, search })
 
       res.json(result)
     } catch (error: any) {
@@ -86,10 +92,12 @@ export class SolicitacaoController {
    * Busca uma solicitação por ID
    * GET /api/solicitacoes/:id
    */
-  async findById(req: Request, res: Response) {
+  async findById(req: AuthRequest, res: Response) {
     try {
+      const userId = req.user?.id
+      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      const solicitacao = await solicitacaoService.findById(id)
+      const solicitacao = await solicitacaoService.findById(id, userId)
 
       res.json({ data: solicitacao })
     } catch (error: any) {
@@ -111,10 +119,12 @@ export class SolicitacaoController {
    * Busca uma solicitação por número
    * GET /api/solicitacoes/numero/:numero
    */
-  async findByNumero(req: Request, res: Response) {
+  async findByNumero(req: AuthRequest, res: Response) {
     try {
+      const userId = req.user?.id
+      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
       const { numero } = req.params
-      const solicitacao = await solicitacaoService.findByNumero(numero)
+      const solicitacao = await solicitacaoService.findByNumero(numero, userId)
 
       res.json({ data: solicitacao })
     } catch (error: any) {
@@ -136,14 +146,14 @@ export class SolicitacaoController {
    * Atualiza uma solicitação
    * PUT /api/solicitacoes/:id
    */
-  async update(req: Request, res: Response) {
+  async update(req: AuthRequest, res: Response) {
     try {
+      const userId = req.user?.id
+      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
 
-      // Validar dados do body
       const bodyData = solicitacaoUpdateSchema.parse(req.body)
 
-      // Obter caminhos dos arquivos enviados (opcionais na atualização)
       const files = req.files as { [fieldname: string]: Express.Multer.File[] }
       const boletoPath = files?.boleto?.[0]?.path
       const notaFiscalPath = files?.notaFiscal?.[0]?.path
@@ -152,7 +162,7 @@ export class SolicitacaoController {
       if (boletoPath) updateData.boletoPath = boletoPath
       if (notaFiscalPath) updateData.notaFiscalPath = notaFiscalPath
 
-      const solicitacao = await solicitacaoService.update(id, updateData)
+      const solicitacao = await solicitacaoService.update(id, updateData, userId)
 
       res.json({
         message: 'Solicitação atualizada com sucesso',
@@ -184,10 +194,12 @@ export class SolicitacaoController {
    * Deleta uma solicitação
    * DELETE /api/solicitacoes/:id
    */
-  async delete(req: Request, res: Response) {
+  async delete(req: AuthRequest, res: Response) {
     try {
+      const userId = req.user?.id
+      if (!userId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      await solicitacaoService.delete(id)
+      await solicitacaoService.delete(id, userId)
 
       res.json({
         message: 'Solicitação deletada com sucesso',

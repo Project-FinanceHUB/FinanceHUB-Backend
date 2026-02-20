@@ -4,9 +4,9 @@ import { toCamel, toSnake } from '../utils/caseMap'
 
 const TABLE = 'solicitacao'
 
-// Colunas da tabela solicitacao (inclui 'mes' para refletir o mês do contrato no frontend)
+// Colunas da tabela solicitacao (inclui 'mes' e 'user_id')
 const COLUMNS =
-  'id,numero,titulo,origem,prioridade,status,estagio,descricao,mensagem,mes,boleto_path,nota_fiscal_path,visualizado,visualizado_em,respondido,respondido_em,created_at,updated_at'
+  'id,numero,titulo,origem,prioridade,status,estagio,descricao,mensagem,mes,boleto_path,nota_fiscal_path,visualizado,visualizado_em,respondido,respondido_em,user_id,created_at,updated_at'
 
 export class SolicitacaoService {
   private async generateNumero(): Promise<string> {
@@ -15,13 +15,12 @@ export class SolicitacaoService {
     return `${timestamp}-${random}`
   }
 
-  async create(data: SolicitacaoCreateInput & { boletoPath?: string; notaFiscalPath?: string }) {
+  async create(data: SolicitacaoCreateInput & { boletoPath?: string; notaFiscalPath?: string }, userId: string) {
     const numero = data.numero || (await this.generateNumero())
 
     const { data: existing } = await supabase.from(TABLE).select('id').eq('numero', numero).maybeSingle()
     if (existing) throw new Error('Número de solicitação já existe')
 
-    // Status definido automaticamente pela fila do SaaS; cliente não pode alterar
     const statusInicial = 'aberto'
 
     const row = toSnake({
@@ -38,6 +37,7 @@ export class SolicitacaoService {
       notaFiscalPath: data.notaFiscalPath,
       visualizado: data.visualizado ?? false,
       respondido: data.respondido ?? false,
+      userId,
     }) as Record<string, unknown>
 
     const { data: solicitacao, error } = await supabase.from(TABLE).insert(row).select(COLUMNS).single()
@@ -45,13 +45,14 @@ export class SolicitacaoService {
     return toCamel(solicitacao)
   }
 
-  async findAll(page: number = 1, limit: number = 10, filters?: { status?: string; search?: string }) {
+  async findAll(userId: string, page: number = 1, limit: number = 10, filters?: { status?: string; search?: string }) {
     const from = (page - 1) * limit
     const to = from + limit - 1
 
     let query = supabase
       .from(TABLE)
       .select(COLUMNS, { count: 'exact' })
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .range(from, to)
 
@@ -102,8 +103,13 @@ export class SolicitacaoService {
     }
   }
 
-  async findById(id: string) {
-    const { data: solicitacao, error } = await supabase.from(TABLE).select(COLUMNS).eq('id', id).single()
+  async findById(id: string, userId: string) {
+    const { data: solicitacao, error } = await supabase
+      .from(TABLE)
+      .select(COLUMNS)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single()
     if (error || !solicitacao) throw new Error('Solicitação não encontrada')
 
     const { data: mensagens } = await supabase
@@ -118,8 +124,13 @@ export class SolicitacaoService {
     }
   }
 
-  async findByNumero(numero: string) {
-    const { data: solicitacao, error } = await supabase.from(TABLE).select(COLUMNS).eq('numero', numero).single()
+  async findByNumero(numero: string, userId: string) {
+    const { data: solicitacao, error } = await supabase
+      .from(TABLE)
+      .select(COLUMNS)
+      .eq('numero', numero)
+      .eq('user_id', userId)
+      .single()
     if (error || !solicitacao) throw new Error('Solicitação não encontrada')
 
     const { data: mensagens } = await supabase
@@ -134,8 +145,8 @@ export class SolicitacaoService {
     }
   }
 
-  async update(id: string, data: SolicitacaoUpdateInput & { boletoPath?: string; notaFiscalPath?: string }) {
-    await this.findById(id)
+  async update(id: string, data: SolicitacaoUpdateInput & { boletoPath?: string; notaFiscalPath?: string }, userId: string) {
+    await this.findById(id, userId)
     // Montar payload apenas com colunas permitidas e valores primitivos (evita "{}" em timestamp)
     const row: Record<string, string | number | boolean> = {
       updated_at: new Date().toISOString(),
@@ -152,14 +163,14 @@ export class SolicitacaoService {
     if (data.respondido != null) row.respondido = data.respondido
     if (data.boletoPath != null) row.boleto_path = data.boletoPath
     if (data.notaFiscalPath != null) row.nota_fiscal_path = data.notaFiscalPath
-    const { data: updated, error } = await supabase.from(TABLE).update(row).eq('id', id).select(COLUMNS).single()
+    const { data: updated, error } = await supabase.from(TABLE).update(row).eq('id', id).eq('user_id', userId).select(COLUMNS).single()
     if (error) throw new Error(error.message)
     return toCamel(updated)
   }
 
-  async delete(id: string) {
-    await this.findById(id)
-    const { error } = await supabase.from(TABLE).delete().eq('id', id)
+  async delete(id: string, userId: string) {
+    await this.findById(id, userId)
+    const { error } = await supabase.from(TABLE).delete().eq('id', id).eq('user_id', userId)
     if (error) throw new Error(error.message)
     return { message: 'Solicitação deletada com sucesso' }
   }
