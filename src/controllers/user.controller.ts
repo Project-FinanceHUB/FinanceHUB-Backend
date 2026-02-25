@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import userService from '../services/user.service'
 import authService from '../services/auth.service'
+import companyService, { getCompanyIdsForUser, getCompanyIdsByUserIds } from '../services/company.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
 import { deleteSuccess } from '../utils/responses'
 import { z } from 'zod'
@@ -11,6 +12,8 @@ const userCreateSchema = z.object({
   password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
   role: z.enum(['admin', 'gerente', 'usuario']).optional(),
   ativo: z.boolean().optional(),
+  /** IDs das empresas às quais o usuário (Gerente/Usuário) será vinculado para visualização. */
+  companyIds: z.array(z.string().uuid()).optional(),
 })
 
 const userUpdateSchema = z.object({
@@ -20,6 +23,8 @@ const userUpdateSchema = z.object({
   ativo: z.boolean().optional(),
   telefone: z.string().max(50).optional().nullable(),
   cargo: z.string().max(100).optional().nullable(),
+  /** IDs das empresas às quais o usuário (Gerente/Usuário) fica vinculado. Substitui vínculos atuais. */
+  companyIds: z.array(z.string().uuid()).optional(),
 })
 
 /** Schema para gerente editar apenas o próprio perfil: nome e senha */
@@ -119,7 +124,13 @@ export class UserController {
       }
 
       const users = await userService.findAll()
-      res.json({ data: users })
+      const userIds = (users as { id: string }[]).map((u) => u.id)
+      const companyIdsByUser = await getCompanyIdsByUserIds(userIds)
+      const usersWithCompanies = (users as Record<string, unknown>[]).map((u) => ({
+        ...u,
+        companyIds: companyIdsByUser[u.id as string] || [],
+      }))
+      res.json({ data: usersWithCompanies })
     } catch (error: any) {
       console.error('Erro ao listar usuários:', error)
       res.status(500).json({
@@ -141,14 +152,16 @@ export class UserController {
           return res.status(403).json({ error: 'Acesso negado. Você não pode visualizar outros usuários.' })
         }
         const user = await userService.findById(id)
-        return res.json({ data: user })
+        const companyIds = await getCompanyIdsForUser(id)
+        return res.json({ data: { ...user, companyIds } })
       }
 
       const user = await userService.findById(id) as { id: string; gerenteId?: string }
       if (role === 'gerente' && user.id !== currentUserId && user.gerenteId !== currentUserId) {
         return res.status(404).json({ error: 'Usuário não encontrado' })
       }
-      res.json({ data: user })
+      const companyIds = await getCompanyIdsForUser(id)
+      res.json({ data: { ...user, companyIds } })
     } catch (error: any) {
       if (error.message === 'Usuário não encontrado') {
         return res.status(404).json({ error: error.message })
@@ -181,6 +194,9 @@ export class UserController {
         role: data.role || 'usuario',
         gerenteId,
       })
+      if (data.companyIds?.length && currentUserId) {
+        await companyService.linkUserToCompanies(user.id, data.companyIds, currentUserId)
+      }
       res.status(201).json({
         message: 'Usuário criado com sucesso. Ele pode fazer login com este e-mail e a senha definida.',
         data: { id: user.id, nome: user.nome, email: user.email, role: user.role, ativo: true },
@@ -231,7 +247,11 @@ export class UserController {
       }
 
       const data = userUpdateSchema.parse(req.body)
-      const user = await userService.update(id, data)
+      const { companyIds, ...updateData } = data
+      const user = await userService.update(id, updateData)
+      if (companyIds && currentUserId) {
+        await companyService.replaceUserCompanies(id, companyIds, currentUserId)
+      }
       res.json({
         message: 'Usuário atualizado com sucesso',
         data: user,

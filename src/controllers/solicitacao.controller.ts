@@ -3,6 +3,7 @@ import solicitacaoService from '../services/solicitacao.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
 import { deleteSuccess } from '../utils/responses'
 import { solicitacaoCreateSchema, solicitacaoUpdateSchema } from '../validators/solicitacao.validator'
+import { saveUserUpload } from '../utils/uploadUserFile'
 
 export class SolicitacaoController {
   /**
@@ -17,22 +18,26 @@ export class SolicitacaoController {
       const bodyData = solicitacaoCreateSchema.parse(req.body)
 
       const files = req.files as { [fieldname: string]: Express.Multer.File[] }
-      const boletoPath = files?.boleto?.[0]?.path
-      const notaFiscalPath = files?.notaFiscal?.[0]?.path
+      const boletoFile = files?.boleto?.[0]
+      const notaFiscalFile = files?.notaFiscal?.[0]
 
-      if (!boletoPath) {
+      if (!boletoFile?.buffer) {
         return res.status(400).json({
           error: 'Boleto é obrigatório',
           field: 'boleto',
         })
       }
 
-      if (!notaFiscalPath) {
+      if (!notaFiscalFile?.buffer) {
         return res.status(400).json({
           error: 'Nota Fiscal é obrigatória',
           field: 'notaFiscal',
         })
       }
+
+      // Grava em /uploads/user/{userId}/ com nome user_{userId}_{hash}.{ext}
+      const boletoPath = saveUserUpload(boletoFile.buffer, ownerId, boletoFile.originalname)
+      const notaFiscalPath = saveUserUpload(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
 
       const solicitacao = await solicitacaoService.create(
         {
@@ -156,12 +161,16 @@ export class SolicitacaoController {
       const bodyData = solicitacaoUpdateSchema.parse(req.body)
 
       const files = req.files as { [fieldname: string]: Express.Multer.File[] }
-      const boletoPath = files?.boleto?.[0]?.path
-      const notaFiscalPath = files?.notaFiscal?.[0]?.path
+      const boletoFile = files?.boleto?.[0]
+      const notaFiscalFile = files?.notaFiscal?.[0]
 
       const updateData: any = { ...bodyData }
-      if (boletoPath) updateData.boletoPath = boletoPath
-      if (notaFiscalPath) updateData.notaFiscalPath = notaFiscalPath
+      if (boletoFile?.buffer) {
+        updateData.boletoPath = saveUserUpload(boletoFile.buffer, ownerId, boletoFile.originalname)
+      }
+      if (notaFiscalFile?.buffer) {
+        updateData.notaFiscalPath = saveUserUpload(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
+      }
 
       const solicitacao = await solicitacaoService.update(id, updateData, ownerId)
 
