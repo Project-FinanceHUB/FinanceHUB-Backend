@@ -64,6 +64,14 @@ app.get('/', (req, res) => {
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Erro não tratado:', err)
 
+  // Multer: arquivo maior que o limite (ex.: 2 MB)
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      error: 'Arquivo muito grande',
+      message: 'Cada arquivo (boleto e nota fiscal) deve ter no máximo 2 MB.',
+    })
+  }
+
   if (err instanceof Error) {
     return res.status(500).json({
       error: 'Erro interno do servidor',

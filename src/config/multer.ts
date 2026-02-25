@@ -24,12 +24,15 @@ const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCa
   }
 }
 
+// Limite por arquivo: Vercel tem 4.5 MB no corpo da requisição; 2 MB por arquivo (boleto + nota) deixa margem.
+const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2 MB por arquivo
+
 // Configuração do multer (memoryStorage para posterior gravação com nome padronizado)
 export const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: MAX_FILE_SIZE,
   },
 })
 
