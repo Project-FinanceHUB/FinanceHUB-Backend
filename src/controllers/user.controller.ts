@@ -100,12 +100,18 @@ export class UserController {
     }
   }
 
-  /** Lista apenas os funcionários vinculados ao usuário logado (gerente) */
+  /** Lista usuários: admin e gerente veem todos (gerente só visualiza); usuário não tem acesso */
   async findAll(req: AuthRequest, res: Response) {
     try {
-      const gerenteId = req.user?.id
-      if (!gerenteId) return res.status(401).json({ error: 'Não autorizado' })
-      const users = await userService.findAllByGerente(gerenteId)
+      const role = req.user?.role
+      const currentUserId = req.user?.id
+      if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
+
+      if (role === 'usuario') {
+        return res.status(403).json({ error: 'Acesso negado. Apenas administradores e gerentes podem visualizar a lista de usuários.' })
+      }
+
+      const users = await userService.findAll()
       res.json({ data: users })
     } catch (error: any) {
       console.error('Erro ao listar usuários:', error)
@@ -118,11 +124,21 @@ export class UserController {
 
   async findById(req: AuthRequest, res: Response) {
     try {
+      const role = req.user?.role
       const currentUserId = req.user?.id
       if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
+
+      if (role === 'usuario') {
+        if (id !== currentUserId) {
+          return res.status(403).json({ error: 'Acesso negado. Você não pode visualizar outros usuários.' })
+        }
+        const user = await userService.findById(id)
+        return res.json({ data: user })
+      }
+
       const user = await userService.findById(id) as { id: string; gerenteId?: string }
-      if (user.id !== currentUserId && user.gerenteId !== currentUserId) {
+      if (role === 'gerente' && user.id !== currentUserId && user.gerenteId !== currentUserId) {
         return res.status(404).json({ error: 'Usuário não encontrado' })
       }
       res.json({ data: user })
@@ -138,12 +154,19 @@ export class UserController {
     }
   }
 
-  /** Cria um funcionário vinculado ao gerente logado (com login por e-mail/senha) */
+  /** Cria usuário: apenas administrador pode criar */
   async create(req: AuthRequest, res: Response) {
     try {
-      const gerenteId = req.user?.id
-      if (!gerenteId) return res.status(401).json({ error: 'Não autorizado' })
+      const role = req.user?.role
+      const currentUserId = req.user?.id
+      if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
+
+      if (role !== 'admin') {
+        return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem criar usuários.' })
+      }
+
       const data = userCreateSchema.parse(req.body)
+      const gerenteId = role === 'admin' ? undefined : currentUserId
       const { user } = await authService.registerWithPassword({
         nome: data.nome,
         email: data.email,
@@ -173,15 +196,18 @@ export class UserController {
     }
   }
 
+  /** Atualiza usuário: apenas administrador pode editar outros usuários */
   async update(req: AuthRequest, res: Response) {
     try {
+      const role = req.user?.role
       const currentUserId = req.user?.id
       if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      const existing = await userService.findById(id) as { gerenteId?: string }
-      if (existing.gerenteId !== currentUserId && id !== currentUserId) {
-        return res.status(404).json({ error: 'Usuário não encontrado' })
+
+      if (role !== 'admin') {
+        return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem editar usuários.' })
       }
+
       const data = userUpdateSchema.parse(req.body)
       const user = await userService.update(id, data)
       res.json({
@@ -208,15 +234,19 @@ export class UserController {
     }
   }
 
+  /** Exclui usuário: apenas administrador pode excluir */
   async delete(req: AuthRequest, res: Response) {
     try {
+      const role = req.user?.role
       const currentUserId = req.user?.id
       if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
-      const existing = await userService.findById(id) as { gerenteId?: string }
-      if (existing.gerenteId !== currentUserId) {
-        return res.status(404).json({ error: 'Usuário não encontrado' })
+
+      if (role !== 'admin') {
+        return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem excluir usuários.' })
       }
+
+      await userService.findById(id)
       await userService.delete(id)
       res.json({ message: 'Usuário deletado com sucesso' })
     } catch (error: any) {

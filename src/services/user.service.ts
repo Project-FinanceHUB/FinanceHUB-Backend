@@ -6,6 +6,17 @@ import { toCamel, toSnake } from '../utils/caseMap'
 const TABLE = 'users'
 
 export class UserService {
+  /** Lista todos os usuários (apenas para perfil admin) */
+  async findAll() {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) throw new Error(error.message)
+    return (data || []).map((row) => toCamel(row))
+  }
+
   /** Lista apenas usuários vinculados a este gerente (funcionários) */
   async findAllByGerente(gerenteId: string) {
     const { data, error } = await supabase
