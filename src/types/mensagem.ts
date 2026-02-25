@@ -13,7 +13,7 @@ export interface Mensagem {
 }
 
 export interface MensagemCreateInput {
-  solicitacaoId?: string
+  solicitacaoId: string
   direcao: MensagemDirecao
   assunto: string
   conteudo: string

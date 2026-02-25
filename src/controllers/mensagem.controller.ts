@@ -3,7 +3,7 @@ import mensagemService from '../services/mensagem.service'
 import { z } from 'zod'
 
 const mensagemCreateSchema = z.object({
-  solicitacaoId: z.string().optional(),
+  solicitacaoId: z.string().min(1, 'Solicitação é obrigatória para enviar a mensagem'),
   direcao: z.enum(['enviada', 'recebida']),
   assunto: z.string().min(1, 'Assunto é obrigatório'),
   conteudo: z.string().min(1, 'Conteúdo é obrigatório'),
