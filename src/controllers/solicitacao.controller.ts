@@ -1,6 +1,7 @@
 import { Response } from 'express'
 import solicitacaoService from '../services/solicitacao.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
+import { deleteSuccess } from '../utils/responses'
 import { solicitacaoCreateSchema, solicitacaoUpdateSchema } from '../validators/solicitacao.validator'
 
 export class SolicitacaoController {
@@ -200,10 +201,7 @@ export class SolicitacaoController {
       if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
       await solicitacaoService.delete(id, ownerId)
-
-      res.json({
-        message: 'Solicitação deletada com sucesso',
-      })
+      return deleteSuccess(res, 'Solicitação excluída com sucesso.')
     } catch (error: any) {
       if (error.message === 'Solicitação não encontrada') {
         return res.status(404).json({

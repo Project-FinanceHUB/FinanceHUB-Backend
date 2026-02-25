@@ -1,6 +1,7 @@
 import { Response } from 'express'
 import companyService from '../services/company.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
+import { deleteSuccess } from '../utils/responses'
 import { z } from 'zod'
 
 const companyCreateSchema = z.object({
@@ -110,7 +111,7 @@ export class CompanyController {
       if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
       await companyService.delete(id, ownerId)
-      res.json({ message: 'Empresa deletada com sucesso' })
+      return deleteSuccess(res, 'Empresa excluída com sucesso.')
     } catch (error: any) {
       if (error.message === 'Empresa não encontrada') {
         return res.status(404).json({ error: error.message })

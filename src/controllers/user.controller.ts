@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import userService from '../services/user.service'
 import authService from '../services/auth.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
+import { deleteSuccess } from '../utils/responses'
 import { z } from 'zod'
 
 const userCreateSchema = z.object({
@@ -19,6 +20,12 @@ const userUpdateSchema = z.object({
   ativo: z.boolean().optional(),
   telefone: z.string().max(50).optional().nullable(),
   cargo: z.string().max(100).optional().nullable(),
+})
+
+/** Schema para gerente editar apenas o próprio perfil: nome e senha */
+const gerenteSelfUpdateSchema = z.object({
+  nome: z.string().min(1, 'Nome é obrigatório').max(255).optional(),
+  password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres').optional(),
 })
 
 /** Schema para "Meu Perfil": só nome, telefone e cargo (e-mail não pode ser alterado) */
@@ -196,7 +203,7 @@ export class UserController {
     }
   }
 
-  /** Atualiza usuário: apenas administrador pode editar outros usuários */
+  /** Atualiza usuário: admin edita qualquer um; gerente só o próprio (nome e senha) */
   async update(req: AuthRequest, res: Response) {
     try {
       const role = req.user?.role
@@ -204,8 +211,23 @@ export class UserController {
       if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
 
+      if (role === 'gerente' && id === currentUserId) {
+        const data = gerenteSelfUpdateSchema.parse(req.body)
+        if (data.nome !== undefined) {
+          await userService.update(id, { nome: data.nome })
+        }
+        if (data.password !== undefined && data.password.trim().length > 0) {
+          await authService.updatePassword(id, data.password)
+        }
+        const user = await userService.findById(id)
+        return res.json({
+          message: 'Seus dados foram atualizados com sucesso.',
+          data: user,
+        })
+      }
+
       if (role !== 'admin') {
-        return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem editar usuários.' })
+        return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem editar outros usuários.' })
       }
 
       const data = userUpdateSchema.parse(req.body)
@@ -248,7 +270,7 @@ export class UserController {
 
       await userService.findById(id)
       await userService.delete(id)
-      res.json({ message: 'Usuário deletado com sucesso' })
+      return deleteSuccess(res, 'Usuário excluído com sucesso.')
     } catch (error: any) {
       if (error.message === 'Usuário não encontrado') {
         return res.status(404).json({ error: error.message })

@@ -485,6 +485,14 @@ export class AuthService {
   }
 
   /**
+   * Atualiza a senha de um usuário no Supabase Auth (uso: gerente editando a própria senha).
+   */
+  async updatePassword(userId: string, newPassword: string): Promise<void> {
+    const { error } = await supabase.auth.admin.updateUserById(userId, { password: newPassword })
+    if (error) throw new Error(error.message)
+  }
+
+  /**
    * Confirma o e-mail de um usuário pela API Admin (sem enviar e-mail).
    * Use para contas criadas pelo fluxo antigo que ficaram "não confirmadas".
    */
