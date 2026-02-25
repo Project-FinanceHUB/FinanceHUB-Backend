@@ -1,9 +1,11 @@
+import path from 'path'
+import fs from 'fs'
 import { Response } from 'express'
 import solicitacaoService from '../services/solicitacao.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
 import { deleteSuccess } from '../utils/responses'
 import { solicitacaoCreateSchema, solicitacaoUpdateSchema } from '../validators/solicitacao.validator'
-import { saveUserUpload } from '../utils/uploadUserFile'
+import { saveUserUpload, getUploadsBase } from '../utils/uploadUserFile'
 
 export class SolicitacaoController {
   /**
@@ -195,6 +197,58 @@ export class SolicitacaoController {
       console.error('Erro ao atualizar solicitação:', error)
       res.status(500).json({
         error: 'Erro ao atualizar solicitação',
+        message: error.message,
+      })
+    }
+  }
+
+  /**
+   * Download de arquivo anexado (boleto ou nota fiscal)
+   * GET /api/solicitacoes/:id/arquivo/:tipo (tipo = boleto | nota-fiscal)
+   */
+  async downloadArquivo(req: AuthRequest, res: Response) {
+    try {
+      const ownerId = req.user?.effectiveOwnerId
+      if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
+      const { id, tipo } = req.params
+      if (!id || !tipo) return res.status(400).json({ error: 'ID e tipo são obrigatórios' })
+      if (tipo !== 'boleto' && tipo !== 'nota-fiscal') {
+        return res.status(400).json({ error: 'Tipo deve ser boleto ou nota-fiscal' })
+      }
+
+      const solicitacao = await solicitacaoService.findById(id, ownerId)
+      const filePathRaw = tipo === 'boleto' ? (solicitacao as any).boletoPath : (solicitacao as any).notaFiscalPath
+      if (!filePathRaw || typeof filePathRaw !== 'string') {
+        return res.status(404).json({ error: tipo === 'boleto' ? 'Boleto não encontrado' : 'Nota fiscal não encontrada' })
+      }
+
+      // Normalizar caminho: remover barras iniciais e usar partes para path.join (funciona em Windows e Linux)
+      const filePath = filePathRaw.replace(/^[/\\]+/, '').replace(/\\/g, '/').trim()
+      const base = getUploadsBase()
+      const absolutePath = path.join(base, ...filePath.split('/'))
+      if (!fs.existsSync(absolutePath)) {
+        console.warn('[downloadArquivo] Arquivo não encontrado:', { absolutePath, base, filePath })
+        return res.status(404).json({ error: 'Arquivo não encontrado no servidor. Verifique se os arquivos foram enviados corretamente.' })
+      }
+
+      const filename = path.basename(absolutePath)
+      const ext = path.extname(filename).toLowerCase()
+      const contentType: Record<string, string> = {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+      }
+      res.setHeader('Content-Type', contentType[ext] || 'application/octet-stream')
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`)
+      res.sendFile(absolutePath)
+    } catch (error: any) {
+      if (error.message === 'Solicitação não encontrada') {
+        return res.status(404).json({ error: error.message })
+      }
+      console.error('Erro ao baixar arquivo:', error)
+      res.status(500).json({
+        error: 'Erro ao baixar arquivo',
         message: error.message,
       })
     }
