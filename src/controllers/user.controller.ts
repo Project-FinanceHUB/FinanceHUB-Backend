@@ -193,14 +193,8 @@ export class UserController {
       }
 
       const data = userCreateSchema.parse(req.body)
-      let gerenteId: string | undefined
-      if (role === 'gerente') {
-        gerenteId = currentUserId
-      } else if (role === 'admin' && (!data.role || data.role === 'usuario')) {
-        gerenteId = currentUserId
-      } else {
-        gerenteId = undefined
-      }
+      const isFuncionario = !data.role || data.role === 'usuario'
+      const gerenteId: string | undefined = isFuncionario ? currentUserId : undefined
       const { user } = await authService.registerWithPassword({
         nome: data.nome,
         email: data.email,
