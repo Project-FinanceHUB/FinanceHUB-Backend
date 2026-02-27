@@ -6,7 +6,7 @@ import { toCamel, toSnake } from '../utils/caseMap'
 const TABLE = 'users'
 
 export class UserService {
-  /** Lista todos os usuários (apenas para perfil admin) */
+  /** Lista todos os usuários (apenas para perfil admin global) */
   async findAll() {
     const { data, error } = await supabase
       .from(TABLE)
@@ -23,6 +23,22 @@ export class UserService {
       .from(TABLE)
       .select('*')
       .eq('gerente_id', gerenteId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw new Error(error.message)
+    return (data || []).map((row) => toCamel(row))
+  }
+
+  /**
+   * Lista usuários visíveis para um "dono" (effectiveOwnerId):
+   * - O próprio dono (id = ownerId)
+   * - Funcionários vinculados (gerente_id = ownerId)
+   */
+  async findAllByOwner(ownerId: string) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('*')
+      .or(`id.eq.${ownerId},gerente_id.eq.${ownerId}`)
       .order('created_at', { ascending: false })
 
     if (error) throw new Error(error.message)

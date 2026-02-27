@@ -117,13 +117,21 @@ export class UserController {
     try {
       const role = req.user?.role
       const currentUserId = req.user?.id
+      const ownerId = req.user?.effectiveOwnerId
       if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
 
       if (role === 'usuario') {
         return res.status(403).json({ error: 'Acesso negado. Apenas administradores e gerentes podem visualizar a lista de usuários.' })
       }
 
-      const users = await userService.findAll()
+      if (!ownerId) {
+        return res.status(500).json({ error: 'Não foi possível determinar o proprietário da conta.' })
+      }
+
+      // Admin/Gerente veem apenas:
+      // - eles mesmos (id = ownerId)
+      // - funcionários com gerente_id = ownerId
+      const users = await userService.findAllByOwner(ownerId)
       const userIds = (users as { id: string }[]).map((u) => u.id)
       const companyIdsByUser = await getCompanyIdsByUserIds(userIds)
       const usersWithCompanies = (users as Record<string, unknown>[]).map((u) => ({
@@ -180,13 +188,19 @@ export class UserController {
       const role = req.user?.role
       const currentUserId = req.user?.id
       if (!currentUserId) return res.status(401).json({ error: 'Não autorizado' })
-
       if (role !== 'admin') {
         return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem criar usuários.' })
       }
 
       const data = userCreateSchema.parse(req.body)
-      const gerenteId = role === 'admin' ? undefined : currentUserId
+      let gerenteId: string | undefined
+      if (role === 'gerente') {
+        gerenteId = currentUserId
+      } else if (role === 'admin' && (!data.role || data.role === 'usuario')) {
+        gerenteId = currentUserId
+      } else {
+        gerenteId = undefined
+      }
       const { user } = await authService.registerWithPassword({
         nome: data.nome,
         email: data.email,
