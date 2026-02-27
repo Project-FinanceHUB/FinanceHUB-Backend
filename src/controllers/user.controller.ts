@@ -264,7 +264,7 @@ export class UserController {
       const updatedCompanyIds = await getCompanyIdsForUser(id)
       res.json({
         message: 'Usuário atualizado com sucesso',
-        data: { ...user, companyIds: updatedCompanyIds },
+        data: { ...(user as any), companyIds: updatedCompanyIds },
       })
     } catch (error: any) {
       if (error.name === 'ZodError') {
