@@ -104,7 +104,16 @@ export class UserService {
   }
 
   async delete(id: string) {
-    await this.findById(id)
+    const user = await this.findById(id)
+
+    // Remover também do Supabase Auth (auth.users), para revogar acesso de login
+    try {
+      await supabase.auth.admin.deleteUser(id)
+    } catch (err) {
+      console.error('[UserService] Erro ao remover usuário do Supabase Auth:', err)
+      // segue mesmo assim para remover do banco de aplicação
+    }
+
     const { error } = await supabase.from(TABLE).delete().eq('id', id)
     if (error) throw new Error(error.message)
     return { message: 'Usuário deletado com sucesso' }
