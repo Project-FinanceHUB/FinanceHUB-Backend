@@ -205,9 +205,10 @@ export class UserController {
       if (data.companyIds?.length && currentUserId) {
         await companyService.linkUserToCompanies(user.id, data.companyIds, currentUserId)
       }
+      const companyIds = await getCompanyIdsForUser(user.id)
       res.status(201).json({
         message: 'Usuário criado com sucesso. Ele pode fazer login com este e-mail e a senha definida.',
-        data: { id: user.id, nome: user.nome, email: user.email, role: user.role, ativo: true },
+        data: { id: user.id, nome: user.nome, email: user.email, role: user.role, ativo: true, companyIds },
       })
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -260,9 +261,10 @@ export class UserController {
       if (companyIds && currentUserId) {
         await companyService.replaceUserCompanies(id, companyIds, currentUserId)
       }
+      const updatedCompanyIds = await getCompanyIdsForUser(id)
       res.json({
         message: 'Usuário atualizado com sucesso',
-        data: user,
+        data: { ...user, companyIds: updatedCompanyIds },
       })
     } catch (error: any) {
       if (error.name === 'ZodError') {
