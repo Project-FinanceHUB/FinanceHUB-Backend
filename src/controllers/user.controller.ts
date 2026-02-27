@@ -193,8 +193,9 @@ export class UserController {
       }
 
       const data = userCreateSchema.parse(req.body)
-      const isFuncionario = !data.role || data.role === 'usuario'
-      const gerenteId: string | undefined = isFuncionario ? currentUserId : undefined
+      // Qualquer usuário que NÃO seja admin (gerente ou usuário) é subordinado deste administrador.
+      const isSubordinado = !data.role || data.role !== 'admin'
+      const gerenteId: string | undefined = isSubordinado ? currentUserId : undefined
       const { user } = await authService.registerWithPassword({
         nome: data.nome,
         email: data.email,
