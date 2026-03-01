@@ -1,6 +1,14 @@
 import crypto from 'crypto'
 import path from 'path'
 import fs from 'fs'
+import supabase from '../config/supabase'
+
+const BUCKET_UPLOADS = 'uploads'
+
+/** Usar Supabase Storage para persistir anexos (obrigatório em Vercel; opcional local) */
+export function useSupabaseStorage(): boolean {
+  return !!(process.env.VERCEL || process.env.USE_SUPABASE_STORAGE)
+}
 
 /** Tamanho do hash (entre 8 e 16 caracteres) */
 const HASH_LENGTH = 12
@@ -28,15 +36,52 @@ function generateFileHash(buffer: Buffer, userId: string, hashLength: number = H
 }
 
 /**
- * Salva um arquivo em /uploads/user/{userId}/ com nome padronizado:
- * user_{userId}_{hash}.{extensao}
- *
- * @param buffer - Conteúdo do arquivo
- * @param userId - ID do usuário (contexto)
- * @param originalName - Nome original (usado apenas para extensão)
- * @returns Caminho relativo ao base de uploads, ex: user/15/user_15_a8f3c9d2.jpg
+ * Garante que o bucket de uploads existe no Supabase Storage (chamado antes do primeiro upload).
  */
-export function saveUserUpload(
+async function ensureUploadsBucket(): Promise<void> {
+  const { error } = await supabase.storage.createBucket(BUCKET_UPLOADS, { public: false })
+  if (error && error.message?.toLowerCase().includes('already exists')) return
+  if (error) console.warn('[uploadUserFile] createBucket:', error.message)
+}
+
+/**
+ * Salva um arquivo no Supabase Storage (persistente).
+ * Mesmo formato de caminho que o disco: user/{userId}/{filename}
+ */
+async function saveUserUploadToStorage(
+  buffer: Buffer,
+  userId: string,
+  originalName: string
+): Promise<string> {
+  await ensureUploadsBucket()
+  const ext = path.extname(originalName) || ''
+  const hash = generateFileHash(buffer, userId)
+  const filename = `user_${userId}_${hash}${ext}`
+  const storagePath = `user/${userId}/${filename}`
+
+  const contentType = getContentType(ext)
+  const { error } = await supabase.storage
+    .from(BUCKET_UPLOADS)
+    .upload(storagePath, buffer, { contentType, upsert: true })
+  if (error) throw new Error(`Falha ao salvar arquivo no storage: ${error.message}`)
+  return storagePath
+}
+
+function getContentType(ext: string): string {
+  const m: Record<string, string> = {
+    '.pdf': 'application/pdf',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.xml': 'application/xml',
+  }
+  return m[ext.toLowerCase()] || 'application/octet-stream'
+}
+
+/**
+ * Salva um arquivo em /uploads/user/{userId}/ (disco) com nome padronizado.
+ */
+function saveUserUploadToDisk(
   buffer: Buffer,
   userId: string,
   originalName: string
@@ -51,9 +96,64 @@ export function saveUserUpload(
   if (!fs.existsSync(userDir)) {
     fs.mkdirSync(userDir, { recursive: true })
   }
-
   fs.writeFileSync(absolutePath, buffer)
-
-  // Retorna caminho relativo ao base com barras (portável para banco e URLs)
   return `user/${userId}/${filename}`
+}
+
+/**
+ * Salva um arquivo (Storage em produção/Vercel, disco local caso contrário).
+ * Retorna caminho relativo: user/{userId}/{filename}
+ */
+export async function saveUserUploadAsync(
+  buffer: Buffer,
+  userId: string,
+  originalName: string
+): Promise<string> {
+  if (useSupabaseStorage()) {
+    return saveUserUploadToStorage(buffer, userId, originalName)
+  }
+  return Promise.resolve(saveUserUploadToDisk(buffer, userId, originalName))
+}
+
+/**
+ * Síncrono: salva em disco. Em ambiente com Storage use create/update que chamam saveUserUploadAsync.
+ */
+export function saveUserUpload(
+  buffer: Buffer,
+  userId: string,
+  originalName: string
+): string {
+  return saveUserUploadToDisk(buffer, userId, originalName)
+}
+
+/**
+ * Obtém o conteúdo do arquivo: do Supabase Storage (se uso Storage) ou do disco.
+ * Retorna null se o arquivo não existir.
+ */
+export async function getFileBuffer(relativePath: string): Promise<Buffer | null> {
+  const normalized = relativePath.replace(/^[/\\]+/, '').replace(/\\/g, '/').trim()
+  if (useSupabaseStorage()) {
+    const { data, error } = await supabase.storage.from(BUCKET_UPLOADS).download(normalized)
+    if (error || !data) return null
+    return Buffer.from(await data.arrayBuffer())
+  }
+  const base = getUploadsBase()
+  const absolutePath = path.join(base, ...normalized.split('/'))
+  if (!fs.existsSync(absolutePath)) return null
+  return fs.readFileSync(absolutePath)
+}
+
+/**
+ * Remove arquivo do Storage (ou do disco). Ignora erros (ex.: já removido).
+ */
+export async function deleteUserFile(relativePath: string): Promise<void> {
+  const normalized = relativePath.replace(/^[/\\]+/, '').replace(/\\/g, '/').trim()
+  if (!normalized) return
+  if (useSupabaseStorage()) {
+    await supabase.storage.from(BUCKET_UPLOADS).remove([normalized])
+    return
+  }
+  const base = getUploadsBase()
+  const absolutePath = path.join(base, ...normalized.split('/'))
+  if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath)
 }

@@ -1,11 +1,10 @@
 import path from 'path'
-import fs from 'fs'
 import { Response } from 'express'
 import solicitacaoService from '../services/solicitacao.service'
 import type { AuthRequest } from '../middleware/auth.middleware'
 import { deleteSuccess } from '../utils/responses'
 import { solicitacaoCreateSchema, solicitacaoUpdateSchema } from '../validators/solicitacao.validator'
-import { saveUserUpload, getUploadsBase } from '../utils/uploadUserFile'
+import { saveUserUpload, saveUserUploadAsync, getFileBuffer, deleteUserFile, useSupabaseStorage } from '../utils/uploadUserFile'
 
 export class SolicitacaoController {
   /**
@@ -37,9 +36,13 @@ export class SolicitacaoController {
         })
       }
 
-      // Grava em /uploads/user/{userId}/ com nome user_{userId}_{hash}.{ext}
-      const boletoPath = saveUserUpload(boletoFile.buffer, ownerId, boletoFile.originalname)
-      const notaFiscalPath = saveUserUpload(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
+      // Grava em disco local ou Supabase Storage (persistente em produção/Vercel)
+      const boletoPath = useSupabaseStorage()
+        ? await saveUserUploadAsync(boletoFile.buffer, ownerId, boletoFile.originalname)
+        : saveUserUpload(boletoFile.buffer, ownerId, boletoFile.originalname)
+      const notaFiscalPath = useSupabaseStorage()
+        ? await saveUserUploadAsync(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
+        : saveUserUpload(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
 
       const solicitacao = await solicitacaoService.create(
         {
@@ -168,10 +171,14 @@ export class SolicitacaoController {
 
       const updateData: any = { ...bodyData }
       if (boletoFile?.buffer) {
-        updateData.boletoPath = saveUserUpload(boletoFile.buffer, ownerId, boletoFile.originalname)
+        updateData.boletoPath = useSupabaseStorage()
+          ? await saveUserUploadAsync(boletoFile.buffer, ownerId, boletoFile.originalname)
+          : saveUserUpload(boletoFile.buffer, ownerId, boletoFile.originalname)
       }
       if (notaFiscalFile?.buffer) {
-        updateData.notaFiscalPath = saveUserUpload(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
+        updateData.notaFiscalPath = useSupabaseStorage()
+          ? await saveUserUploadAsync(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
+          : saveUserUpload(notaFiscalFile.buffer, ownerId, notaFiscalFile.originalname)
       }
 
       const solicitacao = await solicitacaoService.update(id, updateData, ownerId)
@@ -222,16 +229,14 @@ export class SolicitacaoController {
         return res.status(404).json({ error: tipo === 'boleto' ? 'Boleto não encontrado' : 'Nota fiscal não encontrada' })
       }
 
-      // Normalizar caminho: remover barras iniciais e usar partes para path.join (funciona em Windows e Linux)
       const filePath = filePathRaw.replace(/^[/\\]+/, '').replace(/\\/g, '/').trim()
-      const base = getUploadsBase()
-      const absolutePath = path.join(base, ...filePath.split('/'))
-      if (!fs.existsSync(absolutePath)) {
-        console.warn('[downloadArquivo] Arquivo não encontrado:', { absolutePath, base, filePath })
+      const buffer = await getFileBuffer(filePath)
+      if (!buffer) {
+        console.warn('[downloadArquivo] Arquivo não encontrado:', { filePath })
         return res.status(404).json({ error: 'Arquivo não encontrado no servidor. Verifique se os arquivos foram enviados corretamente.' })
       }
 
-      const filename = path.basename(absolutePath)
+      const filename = path.basename(filePath)
       const ext = path.extname(filename).toLowerCase()
       const contentType: Record<string, string> = {
         '.pdf': 'application/pdf',
@@ -241,7 +246,7 @@ export class SolicitacaoController {
       }
       res.setHeader('Content-Type', contentType[ext] || 'application/octet-stream')
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`)
-      res.sendFile(absolutePath)
+      res.send(buffer)
     } catch (error: any) {
       if (error.message === 'Solicitação não encontrada') {
         return res.status(404).json({ error: error.message })
@@ -263,7 +268,12 @@ export class SolicitacaoController {
       const ownerId = req.user?.effectiveOwnerId
       if (!ownerId) return res.status(401).json({ error: 'Não autorizado' })
       const { id } = req.params
+      const solicitacao = await solicitacaoService.findById(id, ownerId)
       await solicitacaoService.delete(id, ownerId)
+      const boletoPath = (solicitacao as any).boletoPath
+      const notaFiscalPath = (solicitacao as any).notaFiscalPath
+      if (typeof boletoPath === 'string') await deleteUserFile(boletoPath)
+      if (typeof notaFiscalPath === 'string') await deleteUserFile(notaFiscalPath)
       return deleteSuccess(res, 'Solicitação excluída com sucesso.')
     } catch (error: any) {
       if (error.message === 'Solicitação não encontrada') {
